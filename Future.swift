@@ -24,26 +24,26 @@ public prefix func * <A> (c: Cell<A>) -> A {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // MARK: Either
 
-public enum Either<U, V> {
+public enum Either<L, R> {
 
-    case Right(Cell<U>)
-    case Left(Cell<V>)
+    case Left(Cell<L>)
+    case Right(Cell<R>)
 
-    public func map<W>(mapping: (U -> W)) -> Either<W, V> {
+    public func map<NR>(mapping: (R -> NR)) -> Either<L, NR> {
         switch self {
-        case let .Right(u):
-            return .Right(Cell<W>(mapping(*u)))
-        case let .Left(v):
-            return .Left(v)
+        case let .Left(l):
+            return .Left(l)
+        case let .Right(r):
+            return .Right(Cell<NR>(mapping(*r)))
         }
     }
 
-    public func flatMap<W>(flatMapping: U -> Either<W, V>) -> Either<W, V> {
+    public func flatMap<NR>(flatMapping: R -> Either<L, NR>) -> Either<L, NR> {
         switch self {
-        case let .Right(u):
-            return flatMapping(*u)
-        case let .Left(v):
-            return .Left(v)
+        case let .Left(l):
+            return .Left(l)
+        case let .Right(r):
+            return flatMapping(*r)
         }
     }
 
@@ -51,10 +51,10 @@ public enum Either<U, V> {
         //TODO: void is a verb, a noun and an abjective OTL, and it sounds mutating
 
         switch self {
-        case .Right:
-            return .Right(Cell<Void>())
         case .Left:
             return .Left(Cell<Void>())
+        case .Right:
+            return .Right(Cell<Void>())
         }
     }
 }
@@ -63,56 +63,56 @@ extension Either: Printable {
 
     public var description: String {
         switch self {
-        case let .Right(u):
-            return "Right{\(*u)}"
-        case let .Left(v):
-            return "Left{\(*v)}"
+        case let .Left(l):
+            return "Left{\(*l)}"
+        case let .Right(r):
+            return "Right{\(*r)}"
         }
     }
 }
 
 
 ///Internal Future Callback
-private enum FutureCallback<U, V> {
+private enum FutureCallback<E, S> {
 
-    typealias ResultCallback = Either<U, V> -> ()
+    typealias ResultCallback = Either<E, S> -> ()
     case Result(ResultCallback)
 
-    typealias SuccessCallback = U -> ()
+    typealias SuccessCallback = S -> ()
     case Success(SuccessCallback)
 
-    typealias ErrorCallback = V -> ()
+    typealias ErrorCallback = E -> ()
     case Error(ErrorCallback)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // MARK: Future
 
-public class Future<U, V> {
+public class Future<E, S> {
 
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // MARK: Private Lifecycle
 
-    private var _result: Either<U, V>?
+    private var _result: Either<E, S>?
 
-    private var _callbacks = Array<FutureCallback<U, V>>()
+    private var _callbacks = Array<FutureCallback<E, S>>()
 
     private var _canceled = false
 
     private init() {}
 
-    private func succeed(u: U) {
+    private func succeed(s: S) {
 
-        complete(Either.Right(Cell<U>(u)))
+        complete(Either.Right(Cell<S>(s)))
     }
 
-    private func fail(v: V) {
+    private func fail(e: E) {
 
-        complete(Either.Left(Cell<V>(v)))
+        complete(Either.Left(Cell<E>(e)))
     }
 
-    private func complete(res: Either<U, V>) {
+    private func complete(res: Either<E, S>) {
 
         if _result != nil {
             return
@@ -134,7 +134,7 @@ public class Future<U, V> {
         _callbacks.removeAll()
     }
 
-    private func call(callback: FutureCallback<U, V>) {
+    private func call(callback: FutureCallback<E, S>) {
 
         if _canceled {
             return
@@ -147,17 +147,17 @@ public class Future<U, V> {
                 f(res)
             case let .Success(f):
                 switch res {
-                case let .Right(r):
-                    f(*r)
                 case .Left:
                     break
+                case let .Right(s):
+                    f(*s)
                 }
             case let .Error(f):
                 switch res {
+                case let .Left(e):
+                    f(*e)
                 case .Right:
                     break
-                case let .Left(l):
-                    f(*l)
                 }
             }
         }
@@ -167,7 +167,7 @@ public class Future<U, V> {
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // MARK: Accessor
 
-    public var result: Either<U, V>? {
+    public var result: Either<E, S>? {
 
         return _result
     }
@@ -177,14 +177,14 @@ public class Future<U, V> {
         return result != nil
     }
 
-    public var success: U? {
+    public var success: S? {
 
         if !completed {
             return nil
         }
         switch result! {
-        case let Either.Right(u):
-            return *u
+        case let Either.Right(s):
+            return *s
         default:
             return nil
         }
@@ -195,14 +195,14 @@ public class Future<U, V> {
         return success != nil
     }
 
-    public var error: V? {
+    public var error: E? {
 
         if !completed {
             return nil
         }
         switch result! {
-        case let Either.Left(v):
-            return *v
+        case let Either.Left(e):
+            return *e
         default:
             return nil
         }
@@ -222,38 +222,38 @@ public class Future<U, V> {
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // MARK: In place
 
-    public func onResult(resultCallback: Either<U, V> -> ()) -> Future<U, V> {
+    public func onResult(resultCallback: Either<E, S> -> ()) -> Future<E, S> {
 
         let futureCallback = FutureCallback.Result(resultCallback)
-        if _result == nil {
-            _callbacks.append(futureCallback)
+        if completed {
+            call(futureCallback)
         }
         else {
-            call(futureCallback)
+            _callbacks.append(futureCallback)
         }
         return self
     }
 
-    public func onSuccess(successCallback: U -> ()) -> Future<U, V> {
+    public func onSuccess(successCallback: S -> ()) -> Future<E, S> {
 
-        let futureCallback = FutureCallback<U, V>.Success(successCallback)
-        if _result == nil {
-            _callbacks.append(futureCallback)
+        let futureCallback = FutureCallback<E, S>.Success(successCallback)
+        if completed {
+            call(futureCallback)
         }
         else {
-            call(futureCallback)
+            _callbacks.append(futureCallback)
         }
         return self
     }
 
-    public func onError(errorCallback: V -> ()) -> Future<U, V> {
+    public func onError(errorCallback: E -> ()) -> Future<E, S> {
 
-        let futureCallback = FutureCallback<U, V>.Error(errorCallback)
-        if _result == nil {
-            _callbacks.append(futureCallback)
+        let futureCallback = FutureCallback<E, S>.Error(errorCallback)
+        if completed {
+            call(futureCallback)
         }
         else {
-            call(futureCallback)
+            _callbacks.append(futureCallback)
         }
         return self
     }
@@ -262,60 +262,59 @@ public class Future<U, V> {
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // MARK: Transform
 
-    public func map <W> (mapping: U -> W) -> Future<W, V> {
+    public func map <NS> (mapping: S -> NS) -> Future<E, NS> {
 
         return mapResult() {
-            e in
-            e.map(mapping)
+            either in
+            either.map(mapping)
         }
     }
 
-    public func mapResult <W, X> (mapping: Either<U, V> ->  Either<W, X>) -> Future<W, X> {
+    public func mapResult <NE, NS> (mapping: Either<E, S> -> Either<NE, NS>) -> Future<NE, NS> {
 
-        var p = Promise<W, X>()
+        var p = Promise<NE, NS>()
         onResult() {
-            e in
-            p.complete(mapping(e))
+            either in
+            p.complete(mapping(either))
         }
-        return p._future
+        return p.future
     }
 
-    public func chain <W> (mapping: U -> Future<W, V>) -> Future<W, V> {
+    public func chain <NS> (mapping: S -> Future<E, NS>) -> Future<E, NS> {
 
-        func chaining(e: Either<U, V>) -> Future<W, V> {
+        func chaining(either: Either<E, S>) -> Future<E, NS> {
 
-            switch e {
-            case let .Right(u):
-
-                return mapping(*u)
-            case let .Left(v):
-                return Future<W, V>.Failed(*v)
+            switch either {
+            case let .Right(s):
+                return mapping(*s)
+            case let .Left(e):
+                return Future<E, NS>.Failed(*e)
             }
         }
 
         return chainResult(chaining)
     }
 
-    public func chainResult <W> (mapping: Either<U, V> -> Future<W, V>) -> Future<W, V> {
+    public func chainResult <NS> (mapping: Either<E, S> -> Future<E, NS>) -> Future<E, NS> {
 
-        var p = Promise<W, V>()
+        var p = Promise<E, NS>()
 
         onResult() {
-            e in
-            mapping(e).onResult() {
+            either in
+            mapping(either).onResult() {
                 futResult in
                 p.complete(futResult)
             }
             return
         }
-        return p._future
+        return p.future
     }
 
     public func void() -> Future<Void, Void> {
 
         return mapResult() {
-            e in
-            e.void()
+            either in
+            either.void()
         }
     }
 
@@ -323,24 +322,24 @@ public class Future<U, V> {
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // MARK: Util - Constructors
 
-    public class func Completed<U, V>(e : Either<U, V>) -> Future<U, V> {
+    public class func Completed<E, S>(either : Either<E, S>) -> Future<E, S> {
 
-        var f = Future<U, V>()
-        f.complete(e)
+        var f = Future<E, S>()
+        f.complete(either)
         return f
     }
 
-    public class func Succeeded<U, V>(u : U) -> Future<U, V> {
+    public class func Succeeded<E, S>(s : S) -> Future<E, S> {
 
-        var f = Future<U, V>()
-        f.succeed(u)
+        var f = Future<E, S>()
+        f.succeed(s)
         return f
     }
 
-    public class func Failed<U, V>(v : V) -> Future<U, V> {
+    public class func Failed<E, S>(e : E) -> Future<E, S> {
 
-        var f = Future<U, V>()
-        f.fail(v)
+        var f = Future<E, S>()
+        f.fail(e)
         return f
     }
 
@@ -348,19 +347,18 @@ public class Future<U, V> {
     // MARK: Util - Aggregations
     //TODO: decide if it belongs in Future or Promise
 
-    public class func AllResult(futures: Array<Future<U, V>>) -> Future<Array<Either<U, V>>, Void> {
+    public class func AllResult(futures: Array<Future<E, S>>) -> Future<Void, Array<Either<E, S>>> {
 
         assert(futures.count > 0)
 
-        var p = Promise<Array<Either<U, V>>, Void>()
+        var p = Promise<Void, Array<Either<E, S>>>()
         var resultCount = 0
 
         for future in futures {
             future.onResult() {
-                e in
+                _ in
                 resultCount += 1
                 if resultCount == futures.count {
-
                     p.succeed(futures.map({ $0.result! }))
                 }
             }
@@ -368,16 +366,16 @@ public class Future<U, V> {
         return p.future
     }
 
-    public class func AllSuccess(futures: Array<Future<U, V>>) -> Future<Array<U>, V> {
+    public class func AllSuccess(futures: Array<Future<E, S>>) -> Future<E, Array<S>> {
 
         assert(futures.count > 0)
 
-        var p = Promise<Array<U>, V>()
+        var p = Promise<E, Array<S>>()
         var successCount = 0
 
         for future in futures {
             future.onSuccess() {
-                u in
+                _ in
                 successCount += 1
                 if successCount == futures.count {
 
@@ -385,28 +383,28 @@ public class Future<U, V> {
                 }
             }
             future.onError() {
-                v in
-                p.fail(v)
+                e in
+                p.fail(e)
             }
         }
         return p.future
     }
 
-    public class func Any(futures: Array<Future<U, V>>) -> Future<U, V> {
+    public class func Any(futures: Array<Future<E, S>>) -> Future<E, S> {
 
         assert(futures.count > 0)
 
-        var p = Promise<U, V>()
+        var p = Promise<E, S>()
         var successCount = 0
 
         for future in futures {
             future.onSuccess() {
-                u in
-                p.succeed(u)
+                s in
+                p.succeed(s)
             }
             future.onError() {
-                v in
-                p.fail(v)
+                e in
+                p.fail(e)
             }
         }
         return p.future
@@ -416,6 +414,7 @@ public class Future<U, V> {
 extension Future: Printable {
 
     public var description: String {
+
         return "Future{\(result)}"
     }
 }
@@ -424,15 +423,15 @@ extension Future: Printable {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // MARK: Promise
 
-public class Promise<U, V> {
+public class Promise<E, S> {
 
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // MARK: Future Accessor
 
-    private var _future = Future<U, V>()
+    private var _future = Future<E, S>()
 
-    var future: Future<U, V> {
+    var future: Future<E, S> {
 
         return _future
     }
@@ -441,43 +440,43 @@ public class Promise<U, V> {
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // MARK: Lifecycle: mutating the underlying future
 
-    public func complete(res: Either<U, V>) {
+    public func complete(res: Either<E, S>) {
 
         _future.complete(res)
     }
 
-    public func succeed(u: U) {
-        
-        _future.succeed(u)
+    public func succeed(s: S) {
+
+        _future.succeed(s)
     }
-    
-    public func fail(v: V) {
-        
-        _future.fail(v)
+
+    public func fail(e: E) {
+
+        _future.fail(e)
     }
-    
+
     public func cancel() {
-        
+
         _future.cancel()
     }
-    
-    public func follow(otherFuture: Future<U, V>) {
+
+    public func follow(otherFuture: Future<E, S>) {
         //TODO: find a good name
-        
+
         otherFuture.onResult(complete)
     }
-    
-    public func unless<W, X>(otherFuture: Future<W, X>, transform: W -> V) {
-        
+
+    public func unless<_E, NS>(otherFuture: Future<_E, NS>, errorBuilder: NS -> E) {
+
         otherFuture.onSuccess() {
-            w in
-            self.fail(transform(w))
+            ns in
+            self.fail(errorBuilder(ns))
         }
     }
 }
 
 extension Promise: Printable {
-    
+
     public var description: String {
         return "Promise{\(_future)}"
     }
